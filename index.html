@@ -3,286 +3,468 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Star Dash Adventure</title>
+  <title>Star Dash Adventure 3D</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body { background: #0f172a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
+    body { background: #0f172a; font-family: 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
     #gameContainer { position: relative; width: 100%; max-width: 480px; height: 100vh; max-height: 800px; background: #1e293b; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     canvas { display: block; width: 100%; height: 100%; }
     
-    /* UI Overlay */
+    /* HUD & UI Overlays */
+    .hud { position: absolute; top: 20px; left: 0; width: 100%; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; z-index: 5; pointer-events: none; }
+    .score-badge { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px); padding: 8px 16px; border-radius: 20px; color: #facc15; font-size: 1.2rem; font-weight: bold; border: 1px solid rgba(250, 204, 21, 0.3); }
+    .lives-badge { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px); padding: 8px 16px; border-radius: 20px; color: #ef4444; font-size: 1.2rem; font-weight: bold; border: 1px solid rgba(239, 68, 68, 0.3); }
+
     .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.85); color: #fff; z-index: 10; padding: 20px; text-align: center; }
     .hidden { display: none !important; }
     h1 { font-size: 2.2rem; color: #facc15; margin-bottom: 10px; text-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-    p { font-size: 1.1rem; color: #cbd5e1; margin-bottom: 25px; }
+    p { font-size: 1.1rem; color: #cbd5e1; margin-bottom: 25px; line-height: 1.5; }
     
-    /* Kid-Friendly Buttons */
     .btn { background: #3b82f6; color: white; border: none; padding: 16px 32px; font-size: 1.3rem; font-weight: bold; border-radius: 50px; cursor: pointer; box-shadow: 0 6px 0 #1d4ed8, 0 10px 15px rgba(0,0,0,0.3); transition: transform 0.1s; margin: 8px 0; width: 80%; }
     .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #1d4ed8; }
     .btn-reward { background: #10b981; box-shadow: 0 6px 0 #047857; }
     .btn-reward:active { box-shadow: 0 2px 0 #047857; }
   </style>
+
+  <!-- Include Three.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
   <div id="gameContainer">
-    <canvas id="gameCanvas"></canvas>
+    <!-- In-Game HUD -->
+    <div id="hud" class="hud hidden">
+      <div id="scoreText" class="score-badge">⭐ SCORE: 0</div>
+      <div id="livesText" class="lives-badge">❤️ LIVES: 3</div>
+    </div>
 
     <!-- Start Screen -->
     <div id="startScreen" class="overlay">
-      <h1>⭐ STAR DASH ⭐</h1>
-      <p>Tap anywhere to jump & avoid the spikes!</p>
+      <h1>⭐ STAR DASH 3D ⭐</h1>
+      <p>Swipe or use Arrow Keys to Switch Lanes & Jump!<br>Avoid crystal spikes & grab golden stars!</p>
       <button class="btn" onclick="startGame()">PLAY GAME</button>
     </div>
 
-    <!-- Game Over Screen (With Ad Integration Hooks) -->
+    <!-- Game Over Screen -->
     <div id="gameOverScreen" class="overlay hidden">
       <h1>GAME OVER</h1>
       <p id="finalScore">Stars Collected: 0</p>
       
-      <!-- Rewarded Ad Revive Button -->
+      <!-- Rewarded Ad Revive -->
       <button class="btn btn-reward" onclick="watchAdToRevive()">🎬 WATCH AD TO CONTINUE</button>
       
-      <!-- Regular Restart (Triggers Interstitial Ad) -->
+      <!-- Restart Game -->
       <button class="btn" onclick="restartGameWithAd()">RESTART</button>
     </div>
   </div>
 
 <script>
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+// --- THREE.JS ENGINE SETUP ---
 const container = document.getElementById('gameContainer');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa855f7); // Sunset purple sky
+scene.fog = new THREE.FogExp2(0xa855f7, 0.015);
 
-// Canvas Auto-Resizing
-function resize() {
-  canvas.width = container.clientWidth;
-  canvas.height = container.clientHeight;
-}
-window.addEventListener('resize', resize);
-resize();
+const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(container.clientWidth, container.clientHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
 
-// Game State Variables
+// --- LIGHTING ---
+const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.7);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.2);
+dirLight.position.set(20, 40, 20);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 1024;
+dirLight.shadow.mapSize.height = 1024;
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 100;
+dirLight.shadow.camera.left = -15;
+dirLight.shadow.camera.right = 15;
+dirLight.shadow.camera.top = 25;
+dirLight.shadow.camera.bottom = -15;
+scene.add(dirLight);
+
+// --- GAME STATE & VARS ---
+const LANES = [-2.2, 0, 2.2];
+let currentLane = 1; // 0: Left, 1: Center, 2: Right
+let targetX = LANES[currentLane];
 let gameState = 'START';
 let score = 0;
-let runSpeed = 5;
-let gravity = 0.6;
+let lives = 3;
+let baseSpeed = 0.4;
+let gameSpeed = baseSpeed;
 let frameCount = 0;
-let deathCount = 0; // Tracks game overs for ad cadence
+let deathCount = 0;
 
-// Game Entities
-let hero = { x: 50, y: 0, width: 40, height: 40, dy: 0, jumpForce: -13, grounded: false };
+// Physics
+let heroY = 0.6;
+let heroVy = 0;
+const gravity = -0.035;
+const jumpForce = 0.65;
+let isGrounded = true;
+
+// Objects Arrays
+let trackTiles = [];
 let obstacles = [];
 let stars = [];
 let particles = [];
+let sceneryItems = [];
 
-// Ground settings
-const groundY = () => canvas.height - 80;
+// --- BUILD HERO MASCOT ---
+const heroGroup = new THREE.Group();
+const heroBodyGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+const heroMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3 });
+const heroMesh = new THREE.Mesh(heroBodyGeo, heroMat);
+heroMesh.castShadow = true;
+heroMesh.receiveShadow = true;
+heroGroup.add(heroMesh);
 
-function resetPlayer() {
-  hero.y = groundY() - hero.height;
-  hero.dy = 0;
+// Hero Eyes
+const eyeGeo = new THREE.BoxGeometry(0.25, 0.3, 0.1);
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const pupilGeo = new THREE.BoxGeometry(0.12, 0.15, 0.11);
+const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+leftEye.position.set(-0.3, 0.2, 0.61);
+const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
+leftPupil.position.set(-0.3, 0.2, 0.62);
+
+const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+rightEye.position.set(0.3, 0.2, 0.61);
+const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
+rightPupil.position.set(0.3, 0.2, 0.62);
+
+heroGroup.add(leftEye, leftPupil, rightEye, rightPupil);
+heroGroup.position.set(LANES[currentLane], heroY, 0);
+scene.add(heroGroup);
+
+// --- CAMERA POSITION ---
+camera.position.set(0, 5, -8);
+camera.lookAt(0, 1.5, 8);
+
+// --- WORLD PROCEDURAL GENERATION ---
+const tileGeo = new THREE.BoxGeometry(7, 0.8, 4);
+const grassMat = new THREE.MeshStandardMaterial({ color: 0x84cc16, roughness: 0.6 });
+const dirtMat = new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.8 });
+
+function spawnTrackTile(zPos) {
+  const tileGroup = new THREE.Group();
+  
+  // Grass Top
+  const grass = new THREE.Mesh(tileGeo, grassMat);
+  grass.position.y = -0.4;
+  grass.receiveShadow = true;
+  tileGroup.add(grass);
+
+  // Dirt Base
+  const dirtGeo = new THREE.BoxGeometry(7, 3, 4);
+  const dirt = new THREE.Mesh(dirtGeo, dirtMat);
+  dirt.position.y = -2.3;
+  tileGroup.add(dirt);
+
+  tileGroup.position.z = zPos;
+  scene.add(tileGroup);
+  trackTiles.push(tileGroup);
 }
 
-// Input Handlers (Tap / Key press to jump)
-function handleJump() {
-  if (gameState === 'PLAYING' && hero.grounded) {
-    hero.dy = hero.jumpForce;
-    hero.grounded = false;
-    createParticles(hero.x + hero.width/2, hero.y + hero.height, '#facc15', 8);
+// Initial Track Setup
+for (let i = 0; i < 20; i++) {
+  spawnTrackTile(i * 4 - 8);
+}
+
+// --- SPONS & OBSTACLES ---
+const spikeGeo = new THREE.ConeGeometry(0.5, 1.2, 4);
+const spikeMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.2, metalness: 0.3 });
+
+function spawnObstacle(z) {
+  const laneIndex = Math.floor(Math.random() * 3);
+  const spikeGroup = new THREE.Group();
+  
+  // Create 3 Spikes Cluster
+  for (let i = -0.3; i <= 0.3; i += 0.3) {
+    const spike = new THREE.Mesh(spikeGeo, spikeMat);
+    spike.position.set(i, 0.6, 0);
+    spike.castShadow = true;
+    spikeGroup.add(spike);
+  }
+
+  spikeGroup.position.set(LANES[laneIndex], 0, z);
+  scene.add(spikeGroup);
+  obstacles.push(spikeGroup);
+}
+
+// Stars Generation
+const starShape = new THREE.Shape();
+// 5 Point Star Geometry
+for (let i = 0; i < 10; i++) {
+  const r = (i % 2 === 0) ? 0.45 : 0.2;
+  const a = (i / 10) * Math.PI * 2;
+  const x = Math.cos(a) * r;
+  const y = Math.sin(a) * r;
+  if (i === 0) starShape.moveTo(x, y);
+  else starShape.lineTo(x, y);
+}
+const extrudeSettings = { depth: 0.15, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.04, bevelThickness: 0.04 };
+const starGeo = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
+const starMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.5, roughness: 0.2, emissive: 0xeab308, emissiveIntensity: 0.2 });
+
+function spawnStar(z) {
+  const laneIndex = Math.floor(Math.random() * 3);
+  const starMesh = new THREE.Mesh(starGeo, starMat);
+  starMesh.castShadow = true;
+  starMesh.position.set(LANES[laneIndex], 1.2 + (Math.random() > 0.5 ? 1.5 : 0), z);
+  scene.add(starMesh);
+  stars.push(starMesh);
+}
+
+// --- CONTROLS & INPUT ---
+function moveLeft() {
+  if (currentLane > 0) { currentLane--; targetX = LANES[currentLane]; }
+}
+function moveRight() {
+  if (currentLane < 2) { currentLane++; targetX = LANES[currentLane]; }
+}
+function jump() {
+  if (isGrounded) {
+    heroVy = jumpForce;
+    isGrounded = false;
+    createParticles(heroGroup.position.x, heroGroup.position.y, 0xfacc15, 8);
   }
 }
-window.addEventListener('touchstart', (e) => { if(e.target.tagName !== 'BUTTON') handleJump(); });
-window.addEventListener('mousedown', (e) => { if(e.target.tagName !== 'BUTTON') handleJump(); });
-window.addEventListener('keydown', (e) => { if (e.code === 'Space' || e.code === 'ArrowUp') handleJump(); });
 
+// Keyboard
+window.addEventListener('keydown', (e) => {
+  if (gameState !== 'PLAYING') return;
+  if (e.key === 'ArrowLeft' || e.key === 'a') moveLeft();
+  if (e.key === 'ArrowRight' || e.key === 'd') moveRight();
+  if (e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') jump();
+});
+
+// Touch & Swipe
+let touchStartX = 0;
+let touchStartY = 0;
+window.addEventListener('touchstart', (e) => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+});
+
+window.addEventListener('touchend', (e) => {
+  if (gameState !== 'PLAYING') return;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+
+  if (Math.abs(dx) > Math.abs(dy)) {
+    if (dx > 30) moveRight();
+    else if (dx < -30) moveLeft();
+  } else {
+    if (dy < -30) jump();
+  }
+});
+
+// --- PARTICLES ENGINE ---
+function createParticles(x, y, z, colorHex, count) {
+  const pGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+  const pMat = new THREE.MeshBasicMaterial({ color: colorHex });
+  for (let i = 0; i < count; i++) {
+    const p = new THREE.Mesh(pGeo, pMat);
+    p.position.set(x, y, z);
+    p.userData = {
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: Math.random() * 0.3,
+      vz: (Math.random() - 0.5) * 0.3,
+      life: 25
+    };
+    scene.add(p);
+    particles.push(p);
+  }
+}
+
+// --- GAME LOOP ---
 function startGame() {
   document.getElementById('startScreen').classList.add('hidden');
   document.getElementById('gameOverScreen').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+
   score = 0;
-  runSpeed = 5;
+  lives = 3;
+  gameSpeed = baseSpeed;
+  currentLane = 1;
+  targetX = LANES[1];
+  heroGroup.position.set(targetX, heroY, 0);
+
+  // Clear Obstacles & Stars
+  obstacles.forEach(o => scene.remove(o));
+  stars.forEach(s => scene.remove(s));
   obstacles = [];
   stars = [];
-  particles = [];
-  resetPlayer();
+
+  updateHUD();
   gameState = 'PLAYING';
 }
 
-function createParticles(x, y, color, count) {
-  for (let i = 0; i < count; i++) {
-    particles.push({
-      x, y,
-      dx: (Math.random() - 0.5) * 6,
-      dy: (Math.random() - 0.5) * 6,
-      radius: Math.random() * 4 + 2,
-      color,
-      life: 20
-    });
-  }
+function updateHUD() {
+  document.getElementById('scoreText').innerText = `⭐ SCORE: ${score}`;
+  document.getElementById('livesText').innerText = `❤️ LIVES: ${lives}`;
 }
 
-// Main Game Loop
 function update() {
   if (gameState !== 'PLAYING') return;
 
   frameCount++;
-  runSpeed = 5 + Math.floor(score / 10) * 0.5; // Gradually speeds up
+  gameSpeed = baseSpeed + Math.floor(score / 15) * 0.03; // Speed progression
 
-  // Apply Hero Gravity & Physics
-  hero.dy += gravity;
-  hero.y += hero.dy;
+  // 1. Smooth Lane Interpolation & Hero Bounce
+  heroGroup.position.x += (targetX - heroGroup.position.x) * 0.25;
 
-  if (hero.y + hero.height >= groundY()) {
-    hero.y = groundY() - hero.height;
-    hero.dy = 0;
-    hero.grounded = true;
+  // Hero Gravity & Jump Physics
+  heroVy += gravity;
+  heroGroup.position.y += heroVy;
+
+  if (heroGroup.position.y <= heroY) {
+    heroGroup.position.y = heroY;
+    heroVy = 0;
+    isGrounded = true;
+    heroMesh.rotation.x = 0;
+  } else {
+    // Jump Flip Animation
+    heroMesh.rotation.x += 0.15;
   }
 
-  // Spawn Obstacles (Red Spikes)
-  if (frameCount % Math.max(60, 120 - Math.floor(runSpeed * 4)) === 0) {
-    obstacles.push({ x: canvas.width, y: groundY() - 35, width: 35, height: 35 });
+  // Running Wobble
+  if (isGrounded) {
+    heroMesh.rotation.z = Math.sin(frameCount * 0.3) * 0.08;
+    heroMesh.rotation.y = Math.sin(frameCount * 0.15) * 0.05;
   }
 
-  // Spawn Stars (Collectible Items)
-  if (frameCount % 90 === 0) {
-    stars.push({ x: canvas.width, y: groundY() - 70 - Math.random() * 80, radius: 15 });
+  // 2. Track Infinite Scrolling
+  trackTiles.forEach(tile => {
+    tile.position.z -= gameSpeed;
+    if (tile.position.z < -8) {
+      tile.position.z += trackTiles.length * 4;
+    }
+  });
+
+  // 3. Spawners
+  if (frameCount % Math.max(30, 70 - Math.floor(gameSpeed * 30)) === 0) {
+    spawnObstacle(50);
+  }
+  if (frameCount % 45 === 0) {
+    spawnStar(50);
   }
 
-  // Update & Check Obstacles
+  // 4. Obstacles Movement & Collision
   for (let i = obstacles.length - 1; i >= 0; i--) {
-    obstacles[i].x -= runSpeed;
+    const obs = obstacles[i];
+    obs.position.z -= gameSpeed;
 
-    // Collision Detection
-    if (
-      hero.x < obstacles[i].x + obstacles[i].width &&
-      hero.x + hero.width > obstacles[i].x &&
-      hero.y < obstacles[i].y + obstacles[i].height &&
-      hero.y + hero.height > obstacles[i].y
-    ) {
-      triggerGameOver();
+    // Collision Check
+    const dx = Math.abs(heroGroup.position.x - obs.position.x);
+    const dz = Math.abs(obs.position.z - heroGroup.position.z);
+    const dy = heroGroup.position.y - obs.position.y;
+
+    if (dx < 0.8 && dz < 0.6 && dy < 1.0) {
+      createParticles(obs.position.x, 0.6, obs.position.z, 0xef4444, 15);
+      scene.remove(obs);
+      obstacles.splice(i, 1);
+      
+      lives--;
+      updateHUD();
+      if (lives <= 0) triggerGameOver();
+      continue;
     }
 
-    if (obstacles[i].x + obstacles[i].width < 0) obstacles.splice(i, 1);
+    if (obs.position.z < -6) {
+      scene.remove(obs);
+      obstacles.splice(i, 1);
+    }
   }
 
-  // Update & Check Collectible Stars
+  // 5. Stars Movement & Collection
   for (let i = stars.length - 1; i >= 0; i--) {
-    stars[i].x -= runSpeed;
+    const star = stars[i];
+    star.position.z -= gameSpeed;
+    star.rotation.y += 0.05; // Spin Effect
 
-    let dist = Math.hypot((hero.x + hero.width/2) - stars[i].x, (hero.y + hero.height/2) - stars[i].y);
-    if (dist < hero.width/2 + stars[i].radius) {
+    // Collection Check
+    const dx = Math.abs(heroGroup.position.x - star.position.x);
+    const dz = Math.abs(star.position.z - heroGroup.position.z);
+    const dy = Math.abs(heroGroup.position.y - star.position.y);
+
+    if (dx < 0.9 && dz < 0.9 && dy < 1.2) {
       score++;
-      createParticles(stars[i].x, stars[i].y, '#facc15', 10);
+      updateHUD();
+      createParticles(star.position.x, star.position.y, star.position.z, 0xfacc15, 12);
+      scene.remove(star);
       stars.splice(i, 1);
-    } else if (stars[i].x < -20) {
+      continue;
+    }
+
+    if (star.position.z < -6) {
+      scene.remove(star);
       stars.splice(i, 1);
     }
   }
 
-  // Update Particles
+  // 6. Particle Updates
   for (let i = particles.length - 1; i >= 0; i--) {
-    particles[i].x += particles[i].dx;
-    particles[i].y += particles[i].dy;
-    particles[i].life--;
-    if (particles[i].life <= 0) particles.splice(i, 1);
+    const p = particles[i];
+    p.position.x += p.userData.vx;
+    p.position.y += p.userData.vy;
+    p.position.z += p.userData.vz;
+    p.userData.life--;
+    if (p.userData.life <= 0) {
+      scene.remove(p);
+      particles.splice(i, 1);
+    }
   }
 }
 
-// Rendering Function
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // 1. Draw Sky Background
-  let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  grad.addColorStop(0, '#0f172a');
-  grad.addColorStop(1, '#1e293b');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 2. Draw Ground
-  ctx.fillStyle = '#10b981';
-  ctx.fillRect(0, groundY(), canvas.width, canvas.height - groundY());
-
-  if (gameState === 'PLAYING') {
-    // 3. Draw Hero (Vibrant Blue Square with Mascot Face)
-    ctx.fillStyle = '#3b82f6';
-    ctx.beginPath();
-    ctx.roundRect(hero.x, hero.y, hero.width, hero.height, 8);
-    ctx.fill();
-
-    // Eyes
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(hero.x + 24, hero.y + 8, 8, 8);
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(hero.x + 28, hero.y + 10, 4, 4);
-
-    // 4. Draw Spikes (Red Triangles)
-    ctx.fillStyle = '#ef4444';
-    obstacles.forEach(obs => {
-      ctx.beginPath();
-      ctx.moveTo(obs.x, obs.y + obs.height);
-      ctx.lineTo(obs.x + obs.width / 2, obs.y);
-      ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
-      ctx.closePath();
-      ctx.fill();
-    });
-
-    // 5. Draw Collectible Stars (Yellow Circles)
-    ctx.fillStyle = '#facc15';
-    stars.forEach(star => {
-      ctx.beginPath();
-      ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 6. Draw Particle Effects
-    particles.forEach(p => {
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // 7. Draw Score UI
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px sans-serif';
-    ctx.fillText(`⭐ Stars: ${score}`, 20, 40);
-  }
-}
-
-function gameLoop() {
+function animate() {
+  requestAnimationFrame(animate);
   update();
-  draw();
-  requestAnimationFrame(gameLoop);
+  renderer.render(scene, camera);
 }
-gameLoop();
+animate();
 
-// --- AD INTEGRATION & GAME OVER HOOKS ---
-
+// --- AD INTEGRATION & GAMEOVER ---
 function triggerGameOver() {
   gameState = 'GAMEOVER';
   deathCount++;
+  document.getElementById('hud').classList.add('hidden');
   document.getElementById('finalScore').innerText = `Stars Collected: ${score}`;
   document.getElementById('gameOverScreen').classList.remove('hidden');
 }
 
 function restartGameWithAd() {
-  // Trigger Interstitial Ad every 2 deaths to respect Google Play Families Policy
   if (deathCount % 2 === 0) {
-    console.log("Trigger AdMob Interstitial Ad here");
-    // WebIntoApp Android wrapper automatically handles interstitial triggers if configured!
+    console.log("Trigger AdMob Interstitial Ad");
   }
   startGame();
 }
 
 function watchAdToRevive() {
-  console.log("Trigger AdMob Rewarded Video Ad here");
-  // Simulating rewarded ad completion:
-  alert("Reward Granted! Continuing run...");
+  console.log("Trigger AdMob Rewarded Video Ad");
   document.getElementById('gameOverScreen').classList.add('hidden');
-  resetPlayer();
-  obstacles = []; // Clear obstacles in front of player
+  document.getElementById('hud').classList.remove('hidden');
+  lives = 1;
+  updateHUD();
+  obstacles.forEach(o => scene.remove(o));
+  obstacles = [];
   gameState = 'PLAYING';
 }
+
+// Window Resizing
+window.addEventListener('resize', () => {
+  camera.aspect = container.clientWidth / container.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(container.clientWidth, container.clientHeight);
+});
 </script>
 </body>
 </html>
